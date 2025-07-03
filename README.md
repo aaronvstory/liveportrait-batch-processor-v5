@@ -113,12 +113,14 @@ Only processes images containing these terms in their filenames.
 - **Virtual environment errors**: Run `setup.bat` again
 - **Missing dependencies**: Ensure `requirements.txt` is installed properly
 - **GPU detection fails**: Check CUDA installation or use CPU mode
-- **Path errors**: Use absolute paths in configuration
+- **Path configuration errors**: See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions
 
 ### Getting Help
 - Check `liveportrait_batch_log.txt` for detailed error information
 - Enable sequential mode for better error visibility
 - Use filtering to test with smaller batches first
+- **For path configuration issues**: See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- Verify your LivePortrait installation works independently before batch processing
 
 ## 📊 Performance Metrics
 
