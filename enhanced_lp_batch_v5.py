@@ -1256,11 +1256,10 @@ class UIManager:
         return lp_path, video_path, input_dir
 
     def _get_liveportrait_path(self, config: ConfigurationManager) -> Optional[Path]:
-        """Get LivePortrait installation path."""
+        """Get LivePortrait installation path with retry mechanism."""
         current_path = Path(config.get("Paths", "liveportrait_repo_path", ""))
-        validator = PathValidator(must_exist=True, must_be_dir=True)
-
-        # Check current path
+        
+        # Check current path first
         if current_path.exists() and (current_path / "inference.py").exists():
             change = Prompt.ask(
                 f"Current LivePortrait path: [path]{current_path}[/path]\nChange it?",
@@ -1270,7 +1269,7 @@ class UIManager:
             if change.lower() == "n":
                 return current_path
 
-        # Get new path
+        # Get new path with retry mechanism
         console.print(
             Panel(
                 "Select the LivePortrait installation directory (containing inference.py)",
@@ -1279,29 +1278,61 @@ class UIManager:
             )
         )
 
-        # Try GUI first
-        new_path = self.gui.select_folder(
-            "Select LivePortrait Directory",
-            current_path.parent if current_path.exists() else None,
-        )
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            new_path = None
+            
+            # Try GUI first
+            if attempt == 0:
+                console.print("[info]Opening folder selection dialog...[/info]")
+                new_path = self.gui.select_folder(
+                    "Select LivePortrait Directory",
+                    current_path.parent if current_path.exists() else Path.home(),
+                )
+                
+                if new_path:
+                    console.print(f"[info]Selected: {new_path}[/info]")
 
-        # Fallback to manual input
-        if not new_path:
-            path_str = Prompt.ask(
-                "Enter LivePortrait directory path",
-                default=str(current_path) if current_path.exists() else "",
-            )
-            new_path = Path(path_str) if path_str else None
+            # Fallback to manual input or if GUI failed
+            if not new_path:
+                if attempt == 0:
+                    console.print("[warning]GUI dialog not available or cancelled. Please enter path manually.[/warning]")
+                
+                path_str = Prompt.ask(
+                    f"Enter LivePortrait directory path (attempt {attempt + 1}/{max_attempts})",
+                    default=str(current_path) if current_path.exists() else "",
+                )
+                new_path = Path(path_str.strip()) if path_str.strip() else None
 
-        # Validate
-        if new_path and new_path.exists() and (new_path / "inference.py").exists():
+            # Skip validation if no path provided
+            if not new_path:
+                console.print("[warning]No path provided.[/warning]")
+                continue
+
+            # Validate the path
+            if not new_path.exists():
+                console.print(f"[error]Path does not exist: {new_path}[/error]")
+                continue
+                
+            if not new_path.is_dir():
+                console.print(f"[error]Path is not a directory: {new_path}[/error]")
+                continue
+                
+            inference_file = new_path / "inference.py"
+            if not inference_file.exists():
+                console.print(f"[error]inference.py not found in: {new_path}[/error]")
+                console.print("[info]Please ensure you selected the main LivePortrait directory[/info]")
+                continue
+
+            # Path is valid - save and return
             config.set("Paths", "liveportrait_repo_path", str(new_path))
             config.save_config()
+            console.print(f"[success]✓ LivePortrait path saved: {new_path}[/success]")
             return new_path
 
-        console.print(
-            "[error]Invalid LivePortrait path. Please ensure the directory contains inference.py[/error]"
-        )
+        # All attempts failed
+        console.print(f"[error]Failed to configure valid LivePortrait path after {max_attempts} attempts[/error]")
+        console.print("[info]Please ensure LivePortrait is properly installed and try again[/info]")
         return None
 
     def _get_driving_video_path(self, config: ConfigurationManager) -> Optional[Path]:
@@ -1340,13 +1371,13 @@ class UIManager:
             return self._select_pkl_template(config, pkl_templates)
 
     def _select_video_file(self, config: ConfigurationManager) -> Optional[Path]:
-        """Select a video file (original logic)."""
+        """Select a video file with retry mechanism."""
         current_path = Path(config.get("Paths", "driving_video_path", ""))
         
         # Check current path
         if current_path.exists() and current_path.is_file():
             change = Prompt.ask(
-                f"Current driving video: [path]{current_path}[/path]\\nChange it?",
+                f"Current driving video: [path]{current_path}[/path]\nChange it?",
                 choices=["y", "n"],
                 default="n",
             )
@@ -1355,7 +1386,6 @@ class UIManager:
                 config.save_config()
                 return current_path
 
-        # Get new path
         console.print(
             Panel(
                 "Select the driving video file for animation",
@@ -1364,9 +1394,68 @@ class UIManager:
             )
         )
 
-        # Try GUI first
-        video_types = [
-            ("Video files", "*.mp4 *.avi *.mov *.mkv *.webm"),
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            new_path = None
+            
+            # Try GUI first
+            if attempt == 0:
+                console.print("[info]Opening file selection dialog...[/info]")
+                video_types = [
+                    ("Video files", "*.mp4 *.avi *.mov *.mkv *.webm"),
+                    ("All files", "*.*"),
+                ]
+                new_path = self.gui.select_file(
+                    "Select Driving Video",
+                    video_types,
+                    current_path.parent if current_path.exists() else Path.home(),
+                )
+                
+                if new_path:
+                    console.print(f"[info]Selected: {new_path}[/info]")
+
+            # Fallback to manual input
+            if not new_path:
+                if attempt == 0:
+                    console.print("[warning]GUI dialog not available or cancelled. Please enter path manually.[/warning]")
+                
+                path_str = Prompt.ask(
+                    f"Enter video file path (attempt {attempt + 1}/{max_attempts})",
+                    default=str(current_path) if current_path.exists() else "",
+                )
+                new_path = Path(path_str.strip()) if path_str.strip() else None
+
+            # Skip validation if no path provided
+            if not new_path:
+                console.print("[warning]No path provided.[/warning]")
+                continue
+
+            # Validate the path
+            if not new_path.exists():
+                console.print(f"[error]File does not exist: {new_path}[/error]")
+                continue
+                
+            if not new_path.is_file():
+                console.print(f"[error]Path is not a file: {new_path}[/error]")
+                continue
+                
+            # Check file extension
+            valid_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}
+            if new_path.suffix.lower() not in valid_extensions:
+                console.print(f"[error]Invalid video format: {new_path.suffix}[/error]")
+                console.print(f"[info]Supported formats: {', '.join(valid_extensions)}[/info]")
+                continue
+
+            # Path is valid - save and return
+            config.set("Paths", "driving_video_path", str(new_path))
+            config.set("Paths", "use_template", "false")
+            config.save_config()
+            console.print(f"[success]✓ Driving video saved: {new_path}[/success]")
+            return new_path
+
+        # All attempts failed
+        console.print(f"[error]Failed to configure valid video file after {max_attempts} attempts[/error]")
+        return None
             ("All files", "*.*"),
         ]
 
@@ -1451,8 +1540,18 @@ class UIManager:
         return selected_template
 
     def _get_input_directory(self, config: ConfigurationManager) -> Optional[Path]:
-        """Get input directory containing image folders."""
+        """Get input directory containing image folders with retry mechanism."""
         current_path = Path(config.get("Paths", "default_parent_image_folder", ""))
+
+        # Check current path first
+        if current_path.exists() and current_path.is_dir():
+            change = Prompt.ask(
+                f"Current input directory: [path]{current_path}[/path]\nChange it?",
+                choices=["y", "n"],
+                default="n",
+            )
+            if change.lower() == "n":
+                return current_path
 
         console.print(
             Panel(
@@ -1462,28 +1561,54 @@ class UIManager:
             )
         )
 
-        # Try GUI first
-        new_path = self.gui.select_folder(
-            "Select Input Directory", current_path if current_path.exists() else None
-        )
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            new_path = None
+            
+            # Try GUI first
+            if attempt == 0:
+                console.print("[info]Opening folder selection dialog...[/info]")
+                new_path = self.gui.select_folder(
+                    "Select Input Directory", 
+                    current_path if current_path.exists() else Path.home()
+                )
+                
+                if new_path:
+                    console.print(f"[info]Selected: {new_path}[/info]")
 
-        # Fallback to manual input
-        if not new_path:
-            path_str = Prompt.ask(
-                "Enter input directory path",
-                default=str(current_path)
-                if current_path.exists()
-                else str(Path.home()),
-            )
-            new_path = Path(path_str) if path_str else None
+            # Fallback to manual input
+            if not new_path:
+                if attempt == 0:
+                    console.print("[warning]GUI dialog not available or cancelled. Please enter path manually.[/warning]")
+                
+                path_str = Prompt.ask(
+                    f"Enter input directory path (attempt {attempt + 1}/{max_attempts})",
+                    default=str(current_path) if current_path.exists() else str(Path.home()),
+                )
+                new_path = Path(path_str.strip()) if path_str.strip() else None
 
-        # Validate
-        if new_path and new_path.exists() and new_path.is_dir():
+            # Skip validation if no path provided
+            if not new_path:
+                console.print("[warning]No path provided.[/warning]")
+                continue
+
+            # Validate the path
+            if not new_path.exists():
+                console.print(f"[error]Directory does not exist: {new_path}[/error]")
+                continue
+                
+            if not new_path.is_dir():
+                console.print(f"[error]Path is not a directory: {new_path}[/error]")
+                continue
+
+            # Path is valid - save and return
             config.set("Paths", "default_parent_image_folder", str(new_path))
             config.save_config()
+            console.print(f"[success]✓ Input directory saved: {new_path}[/success]")
             return new_path
 
-        console.print("[error]Invalid directory path[/error]")
+        # All attempts failed
+        console.print(f"[error]Failed to configure valid input directory after {max_attempts} attempts[/error]")
         return None
 
     def get_filter_settings(self, config: ConfigurationManager) -> Tuple[bool, str]:
