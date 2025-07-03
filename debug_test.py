@@ -139,23 +139,14 @@ def test_liveportrait_command():
     
     # Execute command
     try:
-        if os.name == 'nt':  # Windows - use shell=True for better path handling
-            result = subprocess.run(
-                command_str,
-                shell=True,
-                cwd=lp_repo,
-                capture_output=True,
-                text=True,
-                timeout=60  # 1 minute timeout for test
-            )
-        else:  # Unix/Linux
-            result = subprocess.run(
-                command,
-                cwd=lp_repo,
-                capture_output=True,
-                text=True,
-                timeout=60  # 1 minute timeout for test
-            )
+        # Always use subprocess.run with direct command array to avoid shell issues
+        result = subprocess.run(
+            command,
+            cwd=lp_repo,
+            capture_output=True,
+            text=True,
+            timeout=60  # 1 minute timeout for test
+        )
         
         print(f"📊 Return code: {result.returncode}")
         

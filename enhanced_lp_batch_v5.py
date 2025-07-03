@@ -840,22 +840,33 @@ class ImageProcessor(BaseProcessor):
                 filter_terms = [term.strip().lower() for term in filter_phrase.split(',') if term.strip()]
                 
                 matched_images = []
+                matched_details = []
                 for img in all_images:
                     img_name_lower = img.name.lower()
-                    if any(term in img_name_lower for term in filter_terms):
+                    matching_terms = [term for term in filter_terms if term in img_name_lower]
+                    if matching_terms:
                         matched_images.append(img)
+                        matched_details.append(f"{img.name} (matches: {', '.join(matching_terms)})")
                 
                 all_images = matched_images
-                console.print(f"  ├─ Filter applied: {len(all_images)}/{original_count} images match")
+                console.print(f"  ├─ Filter '{filter_phrase}' applied: {len(all_images)}/{original_count} images match")
+                
+                # Show which specific images will be processed
+                for detail in matched_details:
+                    console.print(f"  │  • {detail}")
 
         if not all_images:
             task.error_message = f"No matching images"
             task.status = TaskStatus.SKIPPED
             return False
 
-        # Show what we're processing
+        # Show what we're processing if no filter was applied
         if not filter_applied:
-            console.print(f"  ├─ Processing {len(all_images)} image(s)...")
+            console.print(f"  ├─ Processing {len(all_images)} image(s):")
+            for img in all_images[:3]:  # Show first 3 images
+                console.print(f"  │  • {img.name}")
+            if len(all_images) > 3:
+                console.print(f"  │  ... and {len(all_images) - 3} more")
 
         # Process images
         success = False
@@ -999,23 +1010,14 @@ class ImageProcessor(BaseProcessor):
             if len(command_str) > 8000:  # Windows command line limit is ~8192
                 raise ValueError(f"Command line too long ({len(command_str)} chars). Try shorter paths.")
             
-            # Use shell=True on Windows for better path handling with spaces
-            if os.name == 'nt':  # Windows
-                process = await asyncio.create_subprocess_shell(
-                    command_str,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                    cwd=lp_repo,
-                )
-            else:  # Unix/Linux
-                process = await asyncio.create_subprocess_exec(
-                    *command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                    cwd=lp_repo,
-                )
+            # Use subprocess_exec with proper argument handling (avoid shell=True to prevent app selector)
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+                cwd=lp_repo,
+            )
 
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(), timeout=self.timeout
