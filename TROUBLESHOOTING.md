@@ -2,6 +2,25 @@
 
 ## Path Configuration Issues
 
+### Problem: Windows "Choose App" Dialog Blocking Processing
+
+**Symptoms:**
+- Processing stops and shows "Select an app to open this .py file" dialog
+- Must manually close dialog for each image being processed
+- Batch processing cannot continue automatically
+
+**Root Cause:**
+- Using `shell=True` on Windows causes Python files to open in system app selector
+- Windows tries to "open" the Python script instead of executing it
+
+**Solution:**
+✅ **Fixed in latest version** - Use `subprocess_exec` instead of `shell=True`
+
+If you encounter this issue:
+1. **Update to latest version** from GitHub
+2. **Restart the batch processor**
+3. Processing should continue without popups
+
 ### Problem: All Processing Failing with Command Errors
 
 **Symptoms:**

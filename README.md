@@ -94,13 +94,18 @@ LivePortrait-Batch-Processor/
 4. Launch `launch_v5.bat` and follow the prompts
 5. Monitor real-time progress with file-by-file completion times
 
-### Advanced Filtering
-```ini
-[Filter]
-filter_images = true
-filter_phrase = selfie,portrait,headshot
+### Enhanced Filtering Display
+The v5.0 interface now shows exactly which images are being processed:
 ```
-Only processes images containing these terms in their filenames.
+├─ Filter 'gen-selfie,gen-3' applied: 2/6 images match
+│  • gen-selfie-001.jpg (matches: gen-selfie)  
+│  • user_gen-3_photo.jpg (matches: gen-3)
+```
+
+This transparency helps you understand:
+- Which filter terms matched each image
+- Exactly what images will be processed
+- Why certain images were skipped
 
 ### Performance Optimization
 - Use PKL templates instead of videos for 10x speed improvement
