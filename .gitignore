@@ -1,3 +1,5 @@
+# LivePortrait Batch Processor - Production .gitignore
+
 # Python
 __pycache__/
 *.py[cod]
@@ -21,7 +23,7 @@ wheels/
 *.egg
 MANIFEST
 
-# Environment
+# Virtual Environment
 .env
 .venv
 env/
@@ -29,15 +31,21 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+Scripts/
+pyvenv.cfg
 
-# IDE
+# IDE & Editor Files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.spyderproject
+.spyproject
+.ropeproject
+*.code-workspace
 
-# OS
+# Operating System
 .DS_Store
 .DS_Store?
 ._*
@@ -45,18 +53,73 @@ venv.bak/
 .Trashes
 ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# Project specific
+# Application State & Logs
 batch_state.json
 liveportrait_batch_log.txt
 *.log
+*.log.*
 temp/
 tmp/
-output/
+cache/
 
-# Large files
+# Configuration (sensitive paths removed)
+liveportrait_batch_config.ini
+
+# User Data & Output
+output/
+results/
+processed/
+*- done/
+
+# Large Media Files
 *.mp4
 *.avi
 *.mov
 *.mkv
 *.webm
+*.mp3
+*.wav
+*.flac
+
+# PKL Templates (user-generated, can be large)
+driving_templates/*.pkl
+
+# Backup & Archive
+backup/
+archive/
+*.bak
+*.backup
+
+# System & Temporary
+.git/objects/
+node_modules/
+*.tmp
+*.temp
+
+# Documentation Build
+docs/_build/
+docs/build/
+
+# Test Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Security
+*.key
+*.pem
+*.crt
+config.local.*
+secrets.*
+
+# Development
+.tox/
+.nox/
+.coverage
+.pytest_cache/

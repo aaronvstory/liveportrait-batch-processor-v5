@@ -1,71 +1,88 @@
 @echo off
-title LivePortrait Batch Processor v5.0 Enhanced Launcher
+title LivePortrait Batch Processor v5.0
 
 echo.
 echo ========================================================================
-echo  LivePortrait Batch Processor v5.0 - ENHANCED WITH DETAILED PROGRESS
+echo  LivePortrait Batch Processor v5.0 - Professional Batch Animation
 echo ========================================================================
 echo.
-echo Found enhanced script: %~dp0enhanced_lp_batch_v5.py
+echo Advanced batch processing with detailed progress tracking, template
+echo support, and parallel processing. Process hundreds of images efficiently
+echo with PKL templates for 10x faster processing speeds.
 echo.
 
-REM Check if Python is available
-where python >nul 2>&1
-if %errorlevel% == 0 (
-    echo Using system Python: python
-    set PYTHON_CMD=python
-) else (
-    where py >nul 2>&1
-    if %errorlevel% == 0 (
-        echo Using Python launcher: py
-        set PYTHON_CMD=py
+REM Change to script directory
+cd /d "%~dp0"
+
+REM Check if setup has been run
+if not exist ".venv\Scripts\activate.bat" (
+    echo [WARNING] Virtual environment not found
+    echo Please run setup.bat first to configure the environment
+    echo.
+    pause
+    exit /b 1
+)
+
+REM Check if config exists
+if not exist "liveportrait_batch_config.ini" (
+    if exist "config_template.ini" (
+        echo [WARNING] Configuration file not found
+        echo Creating default configuration from template...
+        copy "config_template.ini" "liveportrait_batch_config.ini" >nul
+        echo [IMPORTANT] Please edit liveportrait_batch_config.ini with your paths
+        echo.
     ) else (
-        echo [ERROR] Python not found in PATH
-        echo Please install Python or add it to your PATH
+        echo [ERROR] Configuration template missing
+        echo Please ensure config_template.ini exists and run setup.bat
         pause
         exit /b 1
     )
 )
 
-echo.
-echo Testing Python installation...
-%PYTHON_CMD% --version
+REM Activate virtual environment
+echo [INFO] Activating virtual environment...
+call .venv\Scripts\activate.bat
+if %errorlevel% neq 0 (
+    echo [ERROR] Failed to activate virtual environment
+    echo Please run setup.bat to fix the installation
+    pause
+    exit /b 1
+)
 
-echo.
-echo ========================================================================
-echo  NEW FEATURES IN V5.0
-echo ========================================================================
-echo.
-echo ENHANCEMENTS APPLIED:
-echo - Fixed parallel processing issues [simplified approach]
-echo - Added option to skip or reprocess existing folders
-echo - Detailed progress showing individual file completion times
-echo - Enhanced error handling and recovery
-echo - Template [PKL] support for 10x faster processing
-echo - Real-time progress with filenames and processing times
-echo.
-echo PROCESSING BENEFITS:
-echo - Sequential mode: More stable, detailed progress per file
-echo - Parallel mode: Faster but less detailed [optional]
-echo - Template processing: 4-8 seconds vs 40+ seconds for video
-echo - Skip processed folders or reprocess everything
-echo.
-echo If GUI dialogs appear, they might be behind this window.
-echo Press Ctrl+C to interrupt processing if needed.
+REM Verify Python in virtual environment
+python --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] Python not available in virtual environment
+    echo Please run setup.bat to fix the installation
+    pause
+    exit /b 1
+)
 
-REM Change to script directory
-cd /d "%~dp0"
+REM Check if main script exists
+if not exist "enhanced_lp_batch_v5.py" (
+    echo [ERROR] Main script enhanced_lp_batch_v5.py not found
+    echo Please ensure all files are present in the project directory
+    pause
+    exit /b 1
+)
+
+echo [OK] Environment ready
+echo.
+echo [INFO] GUI dialogs may appear behind this window
+echo [INFO] Press Ctrl+C to interrupt processing if needed
+echo.
+echo Starting LivePortrait Batch Processor v5.0...
+echo.
 
 REM Run the enhanced script
-echo.
-echo Starting Enhanced LivePortrait Batch Processor v5.0...
-echo.
-%PYTHON_CMD% enhanced_lp_batch_v5.py
+python enhanced_lp_batch_v5.py
 
+REM Check exit code
 if %errorlevel% neq 0 (
     echo.
     echo [ERROR] Script execution failed with exit code %errorlevel%
     echo Check the error messages above for details.
+    echo If you need help, check the README.md file or the log files.
 )
 
 echo.

@@ -445,10 +445,19 @@ class ConfigurationManager:
         self.parser.set("Batch", "max_retries", "3")
         self.parser.set("Batch", "retry_delay", "5")
         self.parser.set("Batch", "skip_processed", "true")
+        self.parser.set("Batch", "max_folders", "0")
 
         self.parser.add_section("Filter")
         self.parser.set("Filter", "filter_images", "false")
         self.parser.set("Filter", "filter_phrase", "")
+
+        self.parser.add_section("UserPreferences")
+        self.parser.set("UserPreferences", "processing_mode", "3")
+        self.parser.set("UserPreferences", "driving_type", "1")
+        self.parser.set("UserPreferences", "selected_template_index", "1")
+        self.parser.set("UserPreferences", "batch_processing_mode", "1")
+        self.parser.set("UserPreferences", "folder_management_mode", "1")
+        self.parser.set("UserPreferences", "filter_option", "1")
 
         self.parser.add_section("Environment")
         self.parser.set("Environment", "CUDA_VISIBLE_DEVICES", "")
@@ -751,7 +760,7 @@ class ImageProcessor(BaseProcessor):
         self.logger_manager.log_task_end(task)
         return task
 
-    async def process_with_tracking(self, task: ProcessingTask, processed_files: List, layout) -> ProcessingTask:
+    async def process_with_tracking(self, task: ProcessingTask, processed_files: List) -> ProcessingTask:
         """Process a task while tracking individual file processing for beautiful display."""
         task.start_time = time.time()
         task.status = TaskStatus.PROCESSING
@@ -761,7 +770,7 @@ class ImageProcessor(BaseProcessor):
         for attempt in range(self.max_retries + 1):
             try:
                 task.retry_count = attempt
-                result = await self._process_folder_with_tracking(task, processed_files, layout)
+                result = await self._process_folder_with_tracking(task, processed_files)
                 task.status = TaskStatus.COMPLETED if result else TaskStatus.FAILED
                 break
             except Exception as e:
@@ -779,149 +788,96 @@ class ImageProcessor(BaseProcessor):
         self.logger_manager.log_task_end(task)
         return task
 
-    async def _process_folder_with_tracking(self, task: ProcessingTask, processed_files: List, layout) -> bool:
-        """Process images in a folder with individual file tracking."""
+    async def _process_folder_with_tracking(self, task: ProcessingTask, processed_files: List) -> bool:
+        """Process images in a folder with clean tree-like display."""
         folder_path = task.folder_path
 
         # Check if folder exists
         if not folder_path.exists():
             error_msg = f"Folder not found: {folder_path}"
             task.error_message = error_msg
+            console.print(f"  └─ [red]✗ Folder not found[/red]")
             self.logger.error(error_msg)
-            raise FileNotFoundError(error_msg)
+            return False
 
-        # Get ALL images first
+        # Get ALL images
         all_images = []
         extensions = ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.tiff"]
         for ext in extensions:
             all_images.extend(folder_path.glob(ext))
 
-        # Enhanced logging with better formatting - only to log file, not console
-        self.logger.info(f"Found {len(all_images)} total images in folder: {folder_path.name}")
-
         if not all_images:
             task.error_message = f"No images found"
-            self.logger.error(f"No images found in folder: {folder_path.name}")
+            console.print(f"  └─ [yellow]No images found in folder[/yellow]")
             task.status = TaskStatus.SKIPPED
             return False
 
-        # Apply filtering if enabled (to ALL images, not just prefix-filtered ones)
+        # Apply filtering if enabled
         original_count = len(all_images)
+        filter_applied = False
         if self.config.getboolean("Filter", "filter_images"):
             filter_phrase = self.config.get("Filter", "filter_phrase", "")
             if filter_phrase:
+                filter_applied = True
                 # Support multiple comma-separated terms
                 filter_terms = [term.strip().lower() for term in filter_phrase.split(',') if term.strip()]
                 
-                if len(filter_terms) == 1:
-                    # Single term filtering (original logic)
-                    all_images = [
-                        img
-                        for img in all_images
-                        if filter_terms[0] in img.name.lower()
-                    ]
-                    self.logger.info(f"Filter '{filter_terms[0]}' applied: {len(all_images)} images match (from {original_count} total)")
-                else:
-                    # Multiple terms filtering - match ANY of the terms
-                    matched_images = []
-                    for img in all_images:
-                        img_name_lower = img.name.lower()
-                        if any(term in img_name_lower for term in filter_terms):
-                            matched_images.append(img)
-                    
-                    all_images = matched_images
-                    terms_display = "', '".join(filter_terms)
-                    self.logger.info(f"Multiple filters ['{terms_display}'] applied: {len(all_images)} images match (from {original_count} total)")
-            else:
-                self.logger.info("Filter enabled but no filter phrase specified, processing all images")
-        else:
-            self.logger.info("No filtering applied, processing all images")
+                matched_images = []
+                for img in all_images:
+                    img_name_lower = img.name.lower()
+                    if any(term in img_name_lower for term in filter_terms):
+                        matched_images.append(img)
+                
+                all_images = matched_images
+                console.print(f"  ├─ Filter applied: {len(all_images)}/{original_count} images match")
 
         if not all_images:
-            # Set a more concise error message for display
-            task.error_message = f"No images match filter '{self.config.get('Filter', 'filter_phrase', '')}'"
-            # Detailed error only in log file
-            self.logger.error(f"No images match filter phrase '{self.config.get('Filter', 'filter_phrase', '')}' in folder: {folder_path.name}")
+            task.error_message = f"No matching images"
             task.status = TaskStatus.SKIPPED
             return False
 
-        # Process images with individual tracking
+        # Show what we're processing
+        if not filter_applied:
+            console.print(f"  ├─ Processing {len(all_images)} image(s)...")
+
+        # Process images
         success = False
-        errors = []
-
-        self.logger.info(f"Processing {len(all_images)} images in folder: {folder_path.name}")
-
-        for image_path in all_images:
+        success_count = 0
+        
+        for i, image_path in enumerate(all_images):
+            is_last = i == len(all_images) - 1
+            connector = "└─" if is_last else "├─"
+            
             try:
                 file_start_time = time.time()
-                self.logger.info(f"Processing image: {image_path.name}")
+                console.print(f"  │  {connector} {image_path.name}", end="")
                 
                 result = await self._process_single_image(image_path, folder_path)
-                
                 file_duration = time.time() - file_start_time
                 
                 if result:
                     success = True
+                    success_count += 1
                     if result not in task.output_files:
                         task.output_files.append(result)
                     
-                    # Add to processed files tracking with beautiful info
-                    file_info = {
-                        "name": image_path.name,
-                        "path": str(image_path.parent),
-                        "output": str(result),
-                        "duration": file_duration,
-                        "status": "success",
-                        "timestamp": time.time()
-                    }
-                    processed_files.append(file_info)
+                    console.print(f" [green]✓[/green] ({file_duration:.1f}s)")
                     
-                    self.logger.info(f"Successfully processed: {image_path.name} -> {result.name}")
                 else:
-                    error_msg = f"Failed to process image {image_path.name}: No output generated"
-                    self.logger.error(error_msg)
-                    errors.append(error_msg)
-                    
-                    # Add to processed files tracking with error info
-                    file_info = {
-                        "name": image_path.name,
-                        "path": str(image_path.parent),
-                        "output": "Failed",
-                        "duration": file_duration,
-                        "status": "failed",
-                        "timestamp": time.time(),
-                        "error": "No output generated"
-                    }
-                    processed_files.append(file_info)
+                    console.print(f" [red]✗[/red] ({file_duration:.1f}s)")
                     
             except Exception as e:
                 file_duration = time.time() - file_start_time
-                error_msg = f"Failed to process image {image_path.name}: {str(e)}"
-                self.logger.error(error_msg)
-                errors.append(error_msg)
-                
-                # Add to processed files tracking with error info
-                file_info = {
-                    "name": image_path.name,
-                    "path": str(image_path.parent),
-                    "output": "Error",
-                    "duration": file_duration,
-                    "status": "error",
-                    "timestamp": time.time(),
-                    "error": str(e)[:50] + "..." if len(str(e)) > 50 else str(e)
-                }
-                processed_files.append(file_info)
+                console.print(f" [red]✗[/red] ({file_duration:.1f}s) - {str(e)[:30]}...")
                 continue
 
-        # Set error message if processing failed
-        if not success and errors:
-            task.error_message = "\n".join(errors)
-        elif not success:
-            task.error_message = f"No images were successfully processed"
-
-        # Rename folder if successful
+        # Show summary
         if success:
+            console.print(f"  └─ [green]✓ Successfully processed {success_count}/{len(all_images)} images[/green]")
             self._rename_folder_as_processed(folder_path)
+        else:
+            console.print(f"  └─ [red]✗ Failed to process any images[/red]")
+            task.error_message = f"No images were successfully processed"
 
         return success
 
@@ -950,13 +906,11 @@ class ImageProcessor(BaseProcessor):
             driving_path = Path(self.config.get("Paths", "driving_template_path"))
             if not driving_path.exists():
                 raise FileNotFoundError(f"Driving template not found: {driving_path}")
-            console.print(f"[info]Using template: {driving_path.name}[/info]")
         else:
             # Use video file
             driving_path = Path(self.config.get("Paths", "driving_video_path"))
             if not driving_path.exists():
                 raise FileNotFoundError(f"Driving video not found: {driving_path}")
-            console.print(f"[info]Using video: {driving_path.name}[/info]")
 
         if not lp_repo.exists() or not (lp_repo / "inference.py").exists():
             raise FileNotFoundError(f"LivePortrait not found at: {lp_repo}")
@@ -1111,10 +1065,10 @@ class ImageProcessor(BaseProcessor):
             self.logger.info("No filtering applied, processing all images")
 
         if not all_images:
-            # Set a more concise error message for display
-            task.error_message = f"No images match filter '{self.config.get('Filter', 'filter_phrase', '')}'"
-            # Detailed error only in log file
-            self.logger.error(f"No images match filter phrase '{self.config.get('Filter', 'filter_phrase', '')}' in folder: {folder_path.name}")
+            # Set a concise error message for display
+            task.error_message = f"No matching images"
+            # Detailed error only in log file  
+            self.logger.warning(f"No images match filter phrase '{self.config.get('Filter', 'filter_phrase', '')}' in folder: {folder_path.name}")
             task.status = TaskStatus.SKIPPED
             return False
 
@@ -1235,24 +1189,22 @@ class UIManager:
         console.print(
             Panel(
                 Text.assemble(
-                    ("Welcome to the ", "info"),
-                    ("Enhanced LivePortrait Batch Processor v5.0!", "highlight"),
-                    ("\n\nNew Features in v5.0:\n", "info"),
-                    ("• Smart Folder Management: Skip processed folders or reprocess all\n", "success"),
-                    ("• Sequential Mode: Stable processing with detailed per-file progress\n", "success"),
-                    ("• Parallel Mode: Optional faster processing\n", "success"),
-                    ("• Enhanced Error Handling: Robust retry logic and error reporting\n", "success"),
-                    ("• Beautiful Progress Display: Real-time file names and completion times\n", "success"),
-                    ("• Template (.pkl) Support: 10x faster processing than video files\n", "success"),
+                    ("🎭 ", "highlight"),
+                    ("LivePortrait Batch Processor v5.0", "highlight"),
+                    (" - Professional Animation Tools", "info"),
+                    ("\n\nProcess hundreds of images with AI-powered facial animation.\n", "info"),
+                    ("✨ PKL templates for 10x faster processing\n", "success"),
+                    ("📊 Detailed progress tracking with completion times\n", "success"),
+                    ("🔄 Smart folder management and resume functionality", "success"),
                 ),
-                title="Enhanced Features",
+                title="🚀 Ready to Animate",
                 border_style="success",
                 padding=(1, 2),
             )
         )
 
-    def get_processing_mode(self) -> ProcessingMode:
-        """Get processing mode from user."""
+    def get_processing_mode(self, config: ConfigurationManager) -> ProcessingMode:
+        """Get processing mode from user with config memory."""
         console.print(Rule(title="Processing Mode Selection", style="section_title"))
 
         table = Table(show_header=True, box=ROUNDED, border_style="table_border")
@@ -1266,9 +1218,16 @@ class UIManager:
 
         console.print(table)
 
+        # Get saved preference
+        saved_choice = config.getint("UserPreferences", "processing_mode", 3)
+        
         choice = IntPrompt.ask(
-            "Select processing mode", choices=["1", "2", "3"], default=3
+            "Select processing mode", choices=["1", "2", "3"], default=saved_choice
         )
+
+        # Save user choice
+        config.set("UserPreferences", "processing_mode", str(choice))
+        config.save_config()
 
         modes = {1: ProcessingMode.CUDA, 2: ProcessingMode.CPU, 3: ProcessingMode.AUTO}
         return modes[choice]
@@ -1366,7 +1325,14 @@ class UIManager:
         
         console.print(table)
         
-        choice = IntPrompt.ask("Select driving type", choices=["1", "2"], default=1)
+        # Get saved preference
+        saved_choice = config.getint("UserPreferences", "driving_type", 1)
+        
+        choice = IntPrompt.ask("Select driving type", choices=["1", "2"], default=saved_choice)
+        
+        # Save user choice
+        config.set("UserPreferences", "driving_type", str(choice))
+        config.save_config()
         
         if choice == 1:
             return self._select_video_file(config)
@@ -1459,11 +1425,20 @@ class UIManager:
             choice = 1
             console.print(f"[info]Using only available template: {pkl_templates[0].name}[/info]")
         else:
+            # Get saved preference
+            saved_choice = config.getint("UserPreferences", "selected_template_index", 1)
+            # Ensure saved choice is valid for current template count
+            saved_choice = min(saved_choice, len(pkl_templates))
+            
             choice = IntPrompt.ask(
                 "Select template", 
                 choices=[str(i) for i in range(1, len(pkl_templates) + 1)],
-                default=1
+                default=saved_choice
             )
+            
+            # Save user choice
+            config.set("UserPreferences", "selected_template_index", str(choice))
+            config.save_config()
         
         selected_template = pkl_templates[choice - 1]
         
@@ -1544,7 +1519,14 @@ class UIManager:
 
         console.print(table)
 
-        choice = IntPrompt.ask("Select filtering option", choices=["1", "2"], default=1)
+        # Get saved preference
+        saved_choice = config.getint("UserPreferences", "filter_option", 1)
+        
+        choice = IntPrompt.ask("Select filtering option", choices=["1", "2"], default=saved_choice)
+        
+        # Save user choice
+        config.set("UserPreferences", "filter_option", str(choice))
+        config.save_config()
 
         if choice == 2:
             current_phrase = config.get("Filter", "filter_phrase", "gen-selfie")
@@ -1595,7 +1577,14 @@ class UIManager:
         
         console.print(table)
         
-        processing_mode = IntPrompt.ask("Select processing mode", choices=["1", "2"], default=1)
+        # Get saved preference
+        saved_processing_mode = config.getint("UserPreferences", "batch_processing_mode", 1)
+        
+        processing_mode = IntPrompt.ask("Select processing mode", choices=["1", "2"], default=saved_processing_mode)
+        
+        # Save user choice
+        config.set("UserPreferences", "batch_processing_mode", str(processing_mode))
+        config.save_config()
         
         if processing_mode == 1:
             console.print("[success]Sequential Mode selected: Stable processing with detailed progress[/success]")
@@ -1617,7 +1606,14 @@ class UIManager:
         
         console.print(table)
         
-        folder_mode = IntPrompt.ask("Select folder management mode", choices=["1", "2"], default=1)
+        # Get saved preference
+        saved_folder_mode = config.getint("UserPreferences", "folder_management_mode", 1)
+        
+        folder_mode = IntPrompt.ask("Select folder management mode", choices=["1", "2"], default=saved_folder_mode)
+        
+        # Save user choice
+        config.set("UserPreferences", "folder_management_mode", str(folder_mode))
+        config.save_config()
         
         if folder_mode == 1:
             console.print("[success]Skip Processed Mode: Will skip folders already marked as processed[/success]")
@@ -1630,7 +1626,14 @@ class UIManager:
         config.set("Batch", "max_parallel_tasks", str(max_parallel))
         config.save_config()
 
-        max_folders = IntPrompt.ask("Maximum folders to process (0 = all)", default=0)
+        # Get saved preference for max folders
+        saved_max_folders = config.getint("Batch", "max_folders", 0)
+        
+        max_folders = IntPrompt.ask("Maximum folders to process (0 = all)", default=saved_max_folders)
+        
+        # Save user choice
+        config.set("Batch", "max_folders", str(max_folders))
+        config.save_config()
 
         return max_folders, max_parallel
 
@@ -1678,6 +1681,7 @@ class LivePortraitBatchProcessor:
         self.state_manager = StateManager(STATE_PATH)
         self.ui = UIManager()
         self.queue_manager = TaskQueueManager(self.config, self.logger)
+        self.processor = ImageProcessor(self.config, self.logger)
         self.current_state: Optional[BatchState] = None
 
     async def run(self):
@@ -1714,7 +1718,7 @@ class LivePortraitBatchProcessor:
     async def _start_new_batch(self):
         """Start a new batch processing session."""
         # Get processing mode
-        mode = self.ui.get_processing_mode()
+        mode = self.ui.get_processing_mode(self.config)
         self._configure_processing_mode(mode)
 
         # Get paths
@@ -1763,7 +1767,7 @@ class LivePortraitBatchProcessor:
         await self._process_batch()
 
     async def _process_batch(self):
-        """Process the current batch with enhanced visual progress tracking."""
+        """Process the current batch with clean progress display."""
         if not self.current_state:
             return
 
@@ -1775,175 +1779,81 @@ class LivePortraitBatchProcessor:
             console.print("[success]All tasks completed![/success]")
             return
 
-        console.print(Rule(title="Processing Batch", style="header"))
-        
-        # Show batch summary
-        summary_table = Table(box=ROUNDED, border_style="info", show_header=False, padding=(0, 1))
-        summary_table.add_column("Label", style="info", width=20)
-        summary_table.add_column("Value", style="highlight")
-        
-        filter_display = "None"
-        if self.config.getboolean("Filter", "filter_images"):
-            filter_phrase = self.config.get("Filter", "filter_phrase", "")
-            if filter_phrase:
-                terms = [term.strip() for term in filter_phrase.split(',') if term.strip()]
-                if len(terms) > 1:
-                    filter_display = f"{len(terms)} terms: {', '.join(terms[:2])}{'...' if len(terms) > 2 else ''}"
-                else:
-                    filter_display = terms[0]
-        
-        summary_table.add_row("📁 Total Folders:", str(len(remaining_tasks)))
-        summary_table.add_row("🎯 Filter:", filter_display)
-        summary_table.add_row("⚡ Mode:", "Sequential" if self.config.getint("Batch", "max_parallel_tasks", 1) == 1 else "Parallel")
-        summary_table.add_row("📋 Template:", "Yes" if self.config.getboolean("Paths", "use_template") else "Video")
-        
-        console.print(Panel(summary_table, title="🚀 Batch Configuration", border_style="info"))
         console.print()
-
-        # Enhanced progress tracking with real-time stats and individual file display
-        error_stats = {
-            "no_images": 0,
-            "filter_mismatch": 0,
-            "processing_failed": 0,
-            "other": 0
-        }
+        console.print(Rule(title="Processing Batch", style="info"))
+        console.print(f"[info]Starting batch processing for {len(remaining_tasks)} folder(s)...[/info]")
         
-        success_count = 0
-        processed_files = []  # Store individual file results for beautiful display
-        
-        # Create layout for live updates
-        from rich.layout import Layout
-        from rich.live import Live
-        
-        layout = Layout()
-        layout.split_column(
-            Layout(name="progress", size=3),
-            Layout(name="current", size=4),
-            Layout(name="recent", size=12)
+        # Simple progress bar like v3.5
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(bar_width=None),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TextColumn("({task.completed} of {task.total})"),
+            TimeRemainingColumn(),
+            console=console,
+            transient=False,
         )
 
-        with Live(layout, console=console, refresh_per_second=4) as live:
-            
-            # Initialize progress display
-            progress = Progress(
-                SpinnerColumn(),
-                TextColumn("[bold blue]{task.description}"),
-                BarColumn(bar_width=40),
-                TaskProgressColumn(),
-                TextColumn("•"),
-                TextColumn("[green]✅ {task.fields[success]}"),
-                TextColumn("[red]❌ {task.fields[failed]}"),
-                TextColumn("[yellow]⏭️ {task.fields[skipped]}"),
-                TimeRemainingColumn(),
-                expand=True
-            )
-            
-            main_task = progress.add_task(
-                "🔄 Processing folders...",
-                total=len(remaining_tasks),
-                success=0,
-                failed=0,
-                skipped=0
-            )
-            
-            layout["progress"].update(Panel(progress, title="📊 Overall Progress", border_style="blue"))
+        main_task = progress.add_task("Processing folders...", total=len(remaining_tasks))
+        processed_files = []
+        success_count = 0
+        start_time = time.time()
 
-            # Log batch start
-            self.logger.log_batch_start(
-                self.current_state.session_id, len(remaining_tasks)
-            )
+        # Start processing
+        with progress:
+            self.logger.log_batch_start(self.current_state.session_id, len(remaining_tasks))
 
-            # Process tasks with enhanced tracking
             for i, task in enumerate(remaining_tasks):
-                # Update current folder being processed
                 folder_name = task.folder_path.name
                 if len(folder_name) > 30:
                     folder_name = folder_name[:27] + "..."
                 
-                progress.update(
-                    main_task,
-                    description=f"🔄 [{i+1}/{len(remaining_tasks)}] {folder_name}"
-                )
+                progress.update(main_task, description=f"Folder {i+1}/{len(remaining_tasks)}: {folder_name}")
                 
-                # Show current folder info
-                current_info = Table(show_header=False, box=None, padding=(0, 1))
-                current_info.add_column("", style="info", width=15)
-                current_info.add_column("", style="highlight")
-                current_info.add_row("📂 Current Folder:", task.folder_path.name)
-                current_info.add_row("📍 Path:", f"...{str(task.folder_path)[-50:]}" if len(str(task.folder_path)) > 50 else str(task.folder_path))
-                layout["current"].update(Panel(current_info, title="🎯 Currently Processing", border_style="yellow"))
+                # Process the task
+                result = await self.processor.process_with_tracking(task, processed_files)
                 
-                # Process the task and track individual files
-                task_start_time = time.time()
-                result = await self.processor.process_with_tracking(task, processed_files, layout)
-                task_duration = time.time() - task_start_time
+                # Update task completion
+                task.status = result.status
+                task.end_time = time.time()
+                task.error_message = result.error_message
                 
-                # Update statistics based on result
                 if result.status == TaskStatus.COMPLETED:
                     success_count += 1
-                    progress.update(main_task, advance=1, success=success_count)
-                elif result.status == TaskStatus.SKIPPED:
-                    # Categorize the skip reason for better reporting
-                    if "No images found" in (result.error_message or ""):
-                        error_stats["no_images"] += 1
-                    elif "No images match filter" in (result.error_message or ""):
-                        error_stats["filter_mismatch"] += 1
-                    else:
-                        error_stats["other"] += 1
-                    progress.update(main_task, advance=1, skipped=sum(error_stats.values()))
-                else:  # FAILED
-                    error_stats["processing_failed"] += 1
-                    progress.update(main_task, advance=1, failed=error_stats["processing_failed"])
+                
+                progress.update(main_task, advance=1)
                 
                 # Update task in state
                 for j, state_task in enumerate(self.current_state.tasks):
-                    if state_task.task_id == result.task_id:
-                        self.current_state.tasks[j] = result
+                    if state_task.task_id == task.task_id:
+                        self.current_state.tasks[j] = task
                         break
-                
-                # Update recent files display
-                self._update_recent_files_display(layout, processed_files[-10:])  # Show last 10
 
-            # Final progress update
-            progress.update(
-                main_task,
-                description="✅ Batch Complete!",
-                success=success_count,
-                failed=error_stats["processing_failed"],
-                skipped=sum(error_stats.values())
-            )
-            
-            # Show completion message
-            completion_info = Table(show_header=False, box=None, padding=(0, 1))
-            completion_info.add_column("", style="success", width=20)
-            completion_info.add_column("", style="highlight")
-            completion_info.add_row("🎉 Status:", "Processing Complete!")
-            completion_info.add_row("⏱️ Total Time:", f"{self.current_state.duration:.1f}s")
-            completion_info.add_row("📊 Success Rate:", f"{(success_count/len(remaining_tasks)*100):.1f}%" if remaining_tasks else "0%")
-            layout["current"].update(Panel(completion_info, title="✅ Completion Summary", border_style="green"))
-            
-            # Final display pause
-            import asyncio
-            await asyncio.sleep(2)
-
-        # Update final state counts
-        self.current_state.completed_tasks = success_count
-        self.current_state.failed_tasks = error_stats["processing_failed"]
-
-        # Show enhanced results summary
+        # Calculate total time
+        total_time = time.time() - start_time
+        minutes, seconds = divmod(total_time, 60)
+        
+        # Show simple summary like v3.5
         console.print()
-        self._show_enhanced_results(error_stats)
+        console.print(Rule(title="Batch Processing Complete", style="success"))
+        console.print(f"[success]✅ Successfully processed: {success_count} folder(s)[/success]")
+        console.print(f"[info]📊 Total folders: {len(remaining_tasks)}[/info]")
+        console.print(f"[info]⏱️ Total time: {int(minutes)}m {int(seconds)}s[/info]")
+
+        # Update final state
+        self.current_state.completed_tasks = success_count
+        self.current_state.failed_tasks = len(remaining_tasks) - success_count
 
         # Save final state
         self.state_manager.save_state(self.current_state)
 
         # Log completion
-        duration = time.time() - self.current_state.start_time
         self.logger.log_batch_end(
             self.current_state.session_id,
             self.current_state.completed_tasks,
             self.current_state.failed_tasks,
-            duration,
+            total_time,
         )
 
     def _configure_processing_mode(self, mode: ProcessingMode):
@@ -2028,119 +1938,7 @@ class LivePortraitBatchProcessor:
 
         return tasks
 
-    def _show_enhanced_results(self, error_stats: Dict[str, int]):
-        """Show enhanced results summary."""
-        console.print(Rule(title="Processing Summary", style="success"))
 
-        # Summary table
-        table = Table(title="📊 Overall Results", box=ROUNDED, border_style="success", show_header=True)
-        table.add_column("Metric", style="info", width=25)
-        table.add_column("Count", style="highlight", justify="right", width=10)
-        table.add_column("Percentage", style="dimmed", justify="right", width=15)
-
-        total = self.current_state.total_tasks
-        completed = self.current_state.completed_tasks
-        failed = error_stats["processing_failed"]
-        skipped = sum(error_stats.values())
-        
-        # Format duration nicely
-        duration = self.current_state.duration
-        if duration > 3600:  # More than 1 hour
-            duration_str = f"{int(duration // 3600)}h {int((duration % 3600) // 60)}m {int(duration % 60)}s"
-        elif duration > 60:  # More than 1 minute
-            duration_str = f"{int(duration // 60)}m {int(duration % 60)}s"
-        else:
-            duration_str = f"{duration:.1f}s"
-
-        table.add_row("✅ Successfully Processed", str(completed), f"{(completed/total*100):.1f}%" if total > 0 else "0%")
-        table.add_row("❌ Processing Failed", str(failed), f"{(failed/total*100):.1f}%" if total > 0 else "0%")
-        table.add_row("⏭️ Skipped (No Match)", str(skipped), f"{(skipped/total*100):.1f}%" if total > 0 else "0%")
-        table.add_row("📁 Total Folders", str(total), "100%")
-        table.add_row("⏱️ Processing Time", duration_str, "")
-
-        console.print(table)
-
-        # Show error breakdown if there were skipped/failed items
-        if skipped > 0 or failed > 0:
-            console.print()
-            
-            error_table = Table(title="🔍 Issue Breakdown", box=ROUNDED, border_style="warning", show_header=True)
-            error_table.add_column("Issue Type", style="warning", width=30)
-            error_table.add_column("Count", style="highlight", justify="right", width=10)
-            error_table.add_column("Description", style="dimmed", width=40)
-
-            if error_stats["filter_mismatch"] > 0:
-                filter_phrase = self.config.get("Filter", "filter_phrase", "")
-                error_table.add_row(
-                    "🎯 Filter Mismatch", 
-                    str(error_stats["filter_mismatch"]),
-                    f"No images contain '{filter_phrase}'"
-                )
-            
-            if error_stats["no_images"] > 0:
-                error_table.add_row(
-                    "📂 Empty Folders", 
-                    str(error_stats["no_images"]),
-                    "No image files found in folder"
-                )
-            
-            if error_stats["processing_failed"] > 0:
-                error_table.add_row(
-                    "⚠️ Processing Errors", 
-                    str(error_stats["processing_failed"]),
-                    "LivePortrait processing failed"
-                )
-            
-            if error_stats["other"] > 0:
-                error_table.add_row(
-                    "❓ Other Issues", 
-                    str(error_stats["other"]),
-                    "Various other problems"
-                )
-
-            console.print(error_table)
-
-        # Success rate assessment
-        success_rate = (completed / total * 100) if total > 0 else 0
-        console.print()
-        
-        if success_rate >= 90:
-            console.print("🎉 [bold green]Excellent! Very high success rate.[/bold green]")
-        elif success_rate >= 70:
-            console.print("✅ [bold yellow]Good success rate, but some issues encountered.[/bold yellow]")
-        elif success_rate >= 50:
-            console.print("⚠️ [bold orange3]Moderate success rate. Check filter settings or image quality.[/bold orange3]")
-        else:
-            console.print("❌ [bold red]Low success rate. Review configuration and check log file.[/bold red]")
-
-        # Helpful suggestions based on results
-        if error_stats["filter_mismatch"] > error_stats["processing_failed"]:
-            filter_phrase = self.config.get("Filter", "filter_phrase", "")
-            console.print(f"\n💡 [bold cyan]Tip:[/bold cyan] Many folders skipped due to filter '{filter_phrase}'. Consider:")
-            console.print("   • Adjusting the filter phrase to match your image names")
-            console.print("   • Disabling filtering to process all images")
-
-        # Clear state on successful completion
-        if self.current_state.failed_tasks == 0 and completed > 0:
-            self.state_manager.clear_state()
-            console.print("\n🎯 [bold green]Batch completed successfully! State cleared.[/bold green]")
-
-        # Offer to open output directory
-        if completed > 0:
-            parent_dir = (
-                self.current_state.tasks[0].folder_path.parent
-                if self.current_state.tasks
-                else None
-            )
-            if parent_dir and parent_dir.exists():
-                console.print()
-                open_folder = Prompt.ask(
-                    f"📁 Open output directory? [dim]({parent_dir})[/dim]",
-                    choices=["y", "n"],
-                    default="y",
-                )
-                if open_folder.lower() == "y":
-                    self._open_folder(parent_dir)
 
     def _open_folder(self, folder_path: Path):
         """Open folder in system file manager."""
@@ -2157,67 +1955,7 @@ class LivePortraitBatchProcessor:
 
 
 
-    def _update_recent_files_display(self, layout, recent_files: List):
-        """Update the recent files display with beautiful formatting."""
-        if not recent_files:
-            layout["recent"].update(Panel("No files processed yet...", title="📄 Recently Processed Files", border_style="dim"))
-            return
-        
-        # Create beautiful table for recent files
-        files_table = Table(show_header=True, box=ROUNDED, border_style="green", header_style="bold green")
-        files_table.add_column("Status", width=6, justify="center")
-        files_table.add_column("File", style="highlight", width=25)
-        files_table.add_column("Time", width=8, justify="right", style="cyan")
-        files_table.add_column("Output/Error", style="dimmed", width=30)
-        
-        for file_info in recent_files:
-            # Status emoji and styling
-            if file_info["status"] == "success":
-                status = "✅"
-                time_style = "green"
-                name_style = "bold green"
-            elif file_info["status"] == "failed":
-                status = "❌"
-                time_style = "red"
-                name_style = "bold red"
-            else:  # error
-                status = "⚠️"
-                time_style = "orange3"
-                name_style = "bold orange3"
-            
-            # Format duration
-            duration = file_info["duration"]
-            if duration < 1:
-                time_str = f"{duration:.2f}s"
-            elif duration < 60:
-                time_str = f"{duration:.1f}s"
-            else:
-                time_str = f"{int(duration//60)}:{int(duration%60):02d}"
-            
-            # Truncate long names and outputs
-            file_name = file_info["name"]
-            if len(file_name) > 23:
-                file_name = file_name[:20] + "..."
-            
-            output_info = file_info.get("error", Path(file_info["output"]).name if file_info["status"] == "success" else file_info["output"])
-            if len(output_info) > 28:
-                output_info = output_info[:25] + "..."
-            
-            files_table.add_row(
-                status,
-                file_name,
-                f"[{time_style}]{time_str}[/{time_style}]",
-                output_info
-            )
-        
-        # Show summary stats
-        success_count = sum(1 for f in recent_files if f["status"] == "success")
-        total_time = sum(f["duration"] for f in recent_files)
-        avg_time = total_time / len(recent_files) if recent_files else 0
-        
-        title = f"📄 Recently Processed Files ({success_count}/{len(recent_files)} successful, avg: {avg_time:.1f}s)"
-        
-        layout["recent"].update(Panel(files_table, title=title, border_style="green"))
+
 
 
 # Entry Point

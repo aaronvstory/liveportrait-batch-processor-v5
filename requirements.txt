@@ -1,0 +1,28 @@
+# LivePortrait Batch Processor v5.0 - Production Dependencies
+# Core required packages for cross-platform compatibility
+
+# Rich terminal UI framework - for beautiful console output and progress bars
+rich>=13.0.0,<14.0.0
+
+# Standard library packages (included with Python 3.8+)
+# The following are included for reference but don't need installation:
+# - asyncio (built-in)
+# - configparser (built-in) 
+# - hashlib (built-in)
+# - json (built-in)
+# - logging (built-in)
+# - os (built-in)
+# - pathlib (built-in)
+# - shutil (built-in)
+# - subprocess (built-in)
+# - sys (built-in)
+# - tempfile (built-in)
+# - time (built-in)
+# - tkinter (built-in on most systems)
+# - webbrowser (built-in)
+
+# Development dependencies (optional)
+# Uncomment if needed for development:
+# pytest>=7.0.0
+# black>=22.0.0
+# flake8>=5.0.0
