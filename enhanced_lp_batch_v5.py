@@ -806,6 +806,23 @@ class ImageProcessor(BaseProcessor):
         for ext in extensions:
             all_images.extend(folder_path.glob(ext))
 
+        # Sort images to prioritize likely face images and avoid back/license images
+        def image_priority(img_path):
+            name_lower = img_path.name.lower()
+            
+            # Highest priority: selfie, front, gen- images (likely have faces)
+            if any(term in name_lower for term in ['selfie', 'front', 'gen-selfie', 'gen-3']):
+                return 0
+            
+            # Lowest priority: back, license, rear images (likely no faces)
+            if any(term in name_lower for term in ['back', 'license', 'rear', 'behind', 'id-back']):
+                return 2
+                
+            # Medium priority: other images
+            return 1
+        
+        all_images = sorted(all_images, key=image_priority)
+
         if not all_images:
             task.error_message = f"No images found"
             console.print(f"  └─ [yellow]No images found in folder[/yellow]")
@@ -866,6 +883,14 @@ class ImageProcessor(BaseProcessor):
                 else:
                     console.print(f" [red]✗[/red] ({file_duration:.1f}s)")
                     
+            except ValueError as e:
+                # Handle specific errors like "No face detected" - skip but don't fail entire folder
+                file_duration = time.time() - file_start_time
+                if "No face detected" in str(e):
+                    console.print(f" [yellow]⚠[/yellow] ({file_duration:.1f}s) - No face")
+                else:
+                    console.print(f" [yellow]⚠[/yellow] ({file_duration:.1f}s) - {str(e)}")
+                continue
             except Exception as e:
                 file_duration = time.time() - file_start_time
                 console.print(f" [red]✗[/red] ({file_duration:.1f}s)")
@@ -1005,6 +1030,12 @@ class ImageProcessor(BaseProcessor):
             else:
                 error_msg = stderr.decode("utf-8", errors="replace")
                 stdout_msg = stdout.decode("utf-8", errors="replace")
+                
+                # Check for specific "no face detected" error
+                if "No face detected in the source image" in stdout_msg:
+                    # This is a common issue - skip this image but don't fail the entire folder
+                    raise ValueError(f"No face detected in image: {image_path.name}")
+                
                 full_error = f"LivePortrait failed (exit {process.returncode})\nStderr: {error_msg}\nStdout: {stdout_msg}"
                 self.logger.error(full_error)
                 raise subprocess.CalledProcessError(
