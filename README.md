@@ -4,6 +4,8 @@ Professional automated batch processing tools for LivePortrait facial animation.
 
 ## 🚀 Quick Start
 
+![LivePortrait Batch Processor v5 Interface](lpbatchv5%20screenshot.png)
+
 ### Option 1: Enhanced v5 (Recommended)
 - **File**: `launch_v5.bat`
 - **Features**: PKL templates (10x faster), progress tracking, config memory, restart functionality
