@@ -1936,7 +1936,7 @@ class LivePortraitBatchProcessor:
         await self._process_batch()
 
     async def _process_batch(self):
-        """Process the current batch with clean progress display."""
+        """Process the current batch with clean progress display and v3.5-style progress bar."""
         if not self.current_state:
             return
 
@@ -1955,31 +1955,73 @@ class LivePortraitBatchProcessor:
         success_count = 0
         start_time = time.time()
 
-        # Start processing (clean like v3.5)
+        # Start processing with v3.5-style progress bar
         self.logger.log_batch_start(self.current_state.session_id, len(remaining_tasks))
+        
+        # Create progress bar like v3.5 with same styling and colors
+        progress = Progress(
+            SpinnerColumn(spinner_name="dots"),
+            TextColumn(
+                "[cyan1]{task.description}[/cyan1] [dodger_blue1]{task.fields[name]}[/dodger_blue1]",
+                markup=True,
+            ),
+            BarColumn(
+                bar_width=None,
+                style="dodger_blue1",  # v3.5 progress_bar_active color
+                complete_style="green3",  # v3.5 progress_bar_complete color
+                finished_style="grey53",  # v3.5 progress_bar_finished color
+            ),
+            TaskProgressColumn(),
+            TextColumn("({task.completed} of {task.total})"),
+            TimeRemainingColumn(),
+            console=console,
+            transient=False,
+            expand=True,
+        )
 
-        for i, task in enumerate(remaining_tasks):
-            folder_name = task.folder_path.name
+        with progress:
+            overall_task_id = progress.add_task(
+                "Overall Progress", total=len(remaining_tasks), name=""
+            )
             
-            # Simple display like v3.5: "Processing folder (6/10): user_241622"
-            console.print(f"\n[info]Processing folder ({i+1}/{len(remaining_tasks)}): {folder_name}[/info]")
-            
-            # Process the task
-            result = await self.processor.process_with_tracking(task, processed_files)
-            
-            # Update task completion
-            task.status = result.status
-            task.end_time = time.time()
-            task.error_message = result.error_message
-            
-            if result.status == TaskStatus.COMPLETED:
-                success_count += 1
-            
-            # Update task in state
-            for j, state_task in enumerate(self.current_state.tasks):
-                if state_task.task_id == task.task_id:
-                    self.current_state.tasks[j] = task
-                    break
+            for i, task in enumerate(remaining_tasks):
+                folder_name = task.folder_path.name
+                
+                # Update progress bar like v3.5
+                progress.update(
+                    overall_task_id,
+                    description=f"Folder {i + 1}/{len(remaining_tasks)}:",
+                    name=f"{folder_name}",
+                )
+                
+                # Simple display like v3.5: "Processing folder (6/10): user_241622"
+                console.print(f"\n[info]Processing folder ({i+1}/{len(remaining_tasks)}): {folder_name}[/info]")
+                
+                # Process the task
+                result = await self.processor.process_with_tracking(task, processed_files)
+                
+                # Update task completion
+                task.status = result.status
+                task.end_time = time.time()
+                task.error_message = result.error_message
+                
+                if result.status == TaskStatus.COMPLETED:
+                    success_count += 1
+                
+                # Update task in state
+                for j, state_task in enumerate(self.current_state.tasks):
+                    if state_task.task_id == task.task_id:
+                        self.current_state.tasks[j] = task
+                        break
+                
+                # Advance the progress bar
+                progress.update(overall_task_id, advance=1)
+                
+                # Add visual separator like v3.5 (except for last folder)
+                if i < len(remaining_tasks) - 1:
+                    console.print(
+                        Padding(Rule(style="grey53", characters="┈"), (1, 0, 1, 0))
+                    )
 
         # Calculate total time
         total_time = time.time() - start_time
