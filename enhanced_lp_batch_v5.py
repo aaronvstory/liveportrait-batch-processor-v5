@@ -1456,32 +1456,6 @@ class UIManager:
         # All attempts failed
         console.print(f"[error]Failed to configure valid video file after {max_attempts} attempts[/error]")
         return None
-            ("All files", "*.*"),
-        ]
-
-        new_path = self.gui.select_file(
-            "Select Driving Video",
-            video_types,
-            current_path.parent if current_path.exists() else None,
-        )
-
-        # Fallback to manual input
-        if not new_path:
-            path_str = Prompt.ask(
-                "Enter driving video path",
-                default=str(current_path) if current_path.exists() else "",
-            )
-            new_path = Path(path_str) if path_str else None
-
-        # Validate
-        if new_path and new_path.exists() and new_path.is_file():
-            config.set("Paths", "driving_video_path", str(new_path))
-            config.set("Paths", "use_template", "false")
-            config.save_config()
-            return new_path
-
-        console.print("[error]Invalid video file path[/error]")
-        return None
 
     def _select_pkl_template(self, config: ConfigurationManager, pkl_templates: List[Path]) -> Optional[Path]:
         """Select a .pkl template file."""
