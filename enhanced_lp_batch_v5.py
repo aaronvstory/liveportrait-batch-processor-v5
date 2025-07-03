@@ -868,7 +868,8 @@ class ImageProcessor(BaseProcessor):
                     
             except Exception as e:
                 file_duration = time.time() - file_start_time
-                console.print(f" [red]✗[/red] ({file_duration:.1f}s) - {str(e)[:30]}...")
+                console.print(f" [red]✗[/red] ({file_duration:.1f}s)")
+                console.print(f"    [red]Error: {str(e)}[/red]")
                 continue
 
         # Show summary
@@ -916,8 +917,9 @@ class ImageProcessor(BaseProcessor):
             raise FileNotFoundError(f"LivePortrait not found at: {lp_repo}")
 
         # Build command
+        python_exe = self.config.get("Paths", "python_executable", sys.executable)
         command = [
-            sys.executable,
+            python_exe,
             str(lp_repo / "inference.py"),
             "--source",
             str(image_path.resolve()),
@@ -964,6 +966,9 @@ class ImageProcessor(BaseProcessor):
 
         # Execute command with timeout
         try:
+            # Log the full command for debugging
+            self.logger.info(f"Executing command: {' '.join(command)}")
+            
             process = await asyncio.create_subprocess_exec(
                 *command,
                 stdout=asyncio.subprocess.PIPE,
@@ -984,8 +989,11 @@ class ImageProcessor(BaseProcessor):
                 return output_dir / f"{image_path.stem}_output.mp4"
             else:
                 error_msg = stderr.decode("utf-8", errors="replace")
+                stdout_msg = stdout.decode("utf-8", errors="replace")
+                full_error = f"LivePortrait failed (exit {process.returncode})\nStderr: {error_msg}\nStdout: {stdout_msg}"
+                self.logger.error(full_error)
                 raise subprocess.CalledProcessError(
-                    process.returncode, command, error_msg
+                    process.returncode, command, full_error
                 )
 
         except asyncio.TimeoutError:
@@ -1905,10 +1913,11 @@ class LivePortraitBatchProcessor:
 
             for i, task in enumerate(remaining_tasks):
                 folder_name = task.folder_path.name
-                if len(folder_name) > 30:
-                    folder_name = folder_name[:27] + "..."
-                
+                # Don't truncate folder names - let Rich handle display
                 progress.update(main_task, description=f"Folder {i+1}/{len(remaining_tasks)}: {folder_name}")
+                
+                # Also print the folder being processed for clarity
+                console.print(f"\n[info]Processing folder: {task.folder_path}[/info]")
                 
                 # Process the task
                 result = await self.processor.process_with_tracking(task, processed_files)
