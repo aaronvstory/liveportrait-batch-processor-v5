@@ -14,14 +14,52 @@ echo.
 REM Change to script directory
 cd /d "%~dp0"
 
-REM Check if setup has been run
-if not exist ".venv\Scripts\activate.bat" (
-    echo [WARNING] Virtual environment not found
-    echo Please run setup.bat first to configure the environment
-    echo.
-    pause
-    exit /b 1
+REM --- Detect LivePortrait installation and Python like v3.5 ---
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+
+REM Try to read LivePortrait path from config
+set "LP_REPO_PATH="
+if exist "liveportrait_batch_config.ini" (
+    for /f "tokens=2 delims== " %%i in ('findstr "liveportrait_repo_path" liveportrait_batch_config.ini 2^>nul') do set "LP_REPO_PATH=%%i"
 )
+
+REM Find the best Python executable
+set "PYTHON_EXE="
+set "USING_LP_VENV=0"
+
+REM First try LivePortrait's venv (like v3.5)
+if not "%LP_REPO_PATH%"=="" if exist "%LP_REPO_PATH%\venv\Scripts\python.exe" (
+    echo [INFO] Found LivePortrait virtual environment Python: %LP_REPO_PATH%\venv\Scripts\python.exe
+    set "PYTHON_EXE=%LP_REPO_PATH%\venv\Scripts\python.exe"
+    set "USING_LP_VENV=1"
+    goto PYTHON_FOUND
+)
+
+REM Check if local setup has been run
+if exist ".venv\Scripts\activate.bat" (
+    echo [INFO] Found local virtual environment
+    set "PYTHON_EXE=%SCRIPT_DIR%\.venv\Scripts\python.exe"
+    goto PYTHON_FOUND
+)
+
+echo [WARNING] Virtual environment not found
+echo Please run setup.bat first or ensure LivePortrait is properly installed
+echo.
+
+REM Try system Python as fallback
+python --version >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [INFO] Using system Python as fallback
+    set "PYTHON_EXE=python"
+    goto PYTHON_FOUND
+)
+
+echo [ERROR] No Python installation found
+pause
+exit /b 1
+
+:PYTHON_FOUND
 
 REM Check if config exists
 if not exist "liveportrait_batch_config.ini" (
@@ -39,21 +77,37 @@ if not exist "liveportrait_batch_config.ini" (
     )
 )
 
-REM Activate virtual environment
-echo [INFO] Activating virtual environment...
-call .venv\Scripts\activate.bat
-if %errorlevel% neq 0 (
-    echo [ERROR] Failed to activate virtual environment
-    echo Please run setup.bat to fix the installation
-    pause
-    exit /b 1
+REM Setup environment like v3.5
+if "%USING_LP_VENV%"=="1" (
+    echo [INFO] Setting up CUDA environment for LivePortrait virtual environment...
+    set "CUDA_MODULE_LOADING=LAZY"
+    if exist "%LP_REPO_PATH%\venv\Lib\site-packages\torch\lib" (
+        set "CUDA_PATH=%LP_REPO_PATH%\venv\Lib\site-packages\torch\lib"
+        set "PATH=%LP_REPO_PATH%\venv\scripts;%LP_REPO_PATH%\venv\Lib\site-packages\torch\lib;%PATH%"
+    )
+    
+    REM Activate LivePortrait virtual environment
+    echo [INFO] Activating LivePortrait virtual environment...
+    if exist "%LP_REPO_PATH%\venv\Scripts\activate.bat" (
+        call "%LP_REPO_PATH%\venv\Scripts\activate.bat"
+    )
+) else if exist ".venv\Scripts\activate.bat" (
+    echo [INFO] Activating local virtual environment...
+    call .venv\Scripts\activate.bat
+    if %errorlevel% neq 0 (
+        echo [ERROR] Failed to activate local virtual environment
+        echo Please run setup.bat to fix the installation
+        pause
+        exit /b 1
+    )
 )
 
-REM Verify Python in virtual environment
-python --version >nul 2>&1
+REM Verify Python executable
+echo [INFO] Testing Python executable: %PYTHON_EXE%
+"%PYTHON_EXE%" --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Python not available in virtual environment
-    echo Please run setup.bat to fix the installation
+    echo [ERROR] Python executable not working: %PYTHON_EXE%
+    echo Please check your Python installation
     pause
     exit /b 1
 )
@@ -74,8 +128,11 @@ echo.
 echo Starting LivePortrait Batch Processor v5.0...
 echo.
 
+:MAIN_LOOP
+
 REM Run the enhanced script
-python enhanced_lp_batch_v5.py
+echo [INFO] Using Python: %PYTHON_EXE%
+"%PYTHON_EXE%" enhanced_lp_batch_v5.py
 
 REM Check exit code
 if %errorlevel% neq 0 (
@@ -86,5 +143,13 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo Press Enter to exit...
+echo =====================================================================
+echo  Press ENTER to restart the application
+echo  Press Ctrl+C to exit
+echo =====================================================================
+echo.
 pause >nul
+
+REM Clear screen and restart
+cls
+goto MAIN_LOOP

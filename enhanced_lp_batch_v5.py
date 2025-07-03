@@ -731,6 +731,37 @@ class ImageProcessor(BaseProcessor):
         self.timeout = config.getint("Performance", "processing_timeout", 300)
         self.max_retries = config.getint("Batch", "max_retries", 3)
         self.retry_delay = config.getint("Batch", "retry_delay", 5)
+        # Ensure we use the best Python executable like v3.5 does
+        self._ensure_correct_python_executable()
+
+    def _ensure_correct_python_executable(self):
+        """Find and set the best Python executable like v3.5 does."""
+        lp_repo = Path(self.config.get("Paths", "liveportrait_repo_path", ""))
+        
+        if not lp_repo.exists():
+            self.logger.warning("LivePortrait repo path not found, using current Python executable")
+            return
+            
+        # Try LivePortrait's venv first (like v3.5)
+        venv_python = lp_repo / "venv" / "Scripts" / "python.exe"
+        if venv_python.exists():
+            self.logger.info(f"Found LivePortrait venv Python: {venv_python}")
+            self.config.set("Paths", "python_executable", str(venv_python))
+            self.config.save_config()
+            return
+            
+        # Fallback to standalone Python in LivePortrait directory
+        standalone_python = lp_repo / "python" / "python.exe"
+        if standalone_python.exists():
+            self.logger.info(f"Found LivePortrait standalone Python: {standalone_python}")
+            self.config.set("Paths", "python_executable", str(standalone_python))
+            self.config.save_config()
+            return
+            
+        # Fallback to system Python
+        self.logger.warning("LivePortrait Python not found, using system Python")
+        self.config.set("Paths", "python_executable", sys.executable)
+        self.config.save_config()
 
     async def process(self, task: ProcessingTask) -> ProcessingTask:
         """Process a single task with retry logic."""
@@ -829,56 +860,39 @@ class ImageProcessor(BaseProcessor):
             task.status = TaskStatus.SKIPPED
             return False
 
-        # Apply filtering if enabled
+        # Apply filtering if enabled (clean like v3.5)
         original_count = len(all_images)
-        filter_applied = False
         if self.config.getboolean("Filter", "filter_images"):
             filter_phrase = self.config.get("Filter", "filter_phrase", "")
             if filter_phrase:
-                filter_applied = True
                 # Support multiple comma-separated terms
                 filter_terms = [term.strip().lower() for term in filter_phrase.split(',') if term.strip()]
                 
                 matched_images = []
-                matched_details = []
                 for img in all_images:
                     img_name_lower = img.name.lower()
-                    matching_terms = [term for term in filter_terms if term in img_name_lower]
-                    if matching_terms:
+                    if any(term in img_name_lower for term in filter_terms):
                         matched_images.append(img)
-                        matched_details.append(f"{img.name} (matches: {', '.join(matching_terms)})")
                 
                 all_images = matched_images
-                console.print(f"  ├─ Filter '{filter_phrase}' applied: {len(all_images)}/{original_count} images match")
-                
-                # Show which specific images will be processed
-                for detail in matched_details:
-                    console.print(f"  │  • {detail}")
+                # Simple message like v3.5
+                console.print(f"  ├─ Looking for images containing '{filter_phrase}'...")
 
         if not all_images:
             task.error_message = f"No matching images"
+            console.print(f"  └─ No images found.")
             task.status = TaskStatus.SKIPPED
             return False
 
-        # Show what we're processing if no filter was applied
-        if not filter_applied:
-            console.print(f"  ├─ Processing {len(all_images)} image(s):")
-            for img in all_images[:3]:  # Show first 3 images
-                console.print(f"  │  • {img.name}")
-            if len(all_images) > 3:
-                console.print(f"  │  ... and {len(all_images) - 3} more")
-
-        # Process images
+        # Process images (clean like v3.5)
         success = False
         success_count = 0
         
-        for i, image_path in enumerate(all_images):
-            is_last = i == len(all_images) - 1
-            connector = "└─" if is_last else "├─"
-            
+        for image_path in all_images:
             try:
                 file_start_time = time.time()
-                console.print(f"  │  {connector} {image_path.name}", end="")
+                # Simple display like v3.5: "Processing image: filename"
+                console.print(f"  ├─ Processing image: {image_path.name}")
                 
                 result = await self._process_single_image(image_path, folder_path)
                 file_duration = time.time() - file_start_time
@@ -889,29 +903,29 @@ class ImageProcessor(BaseProcessor):
                     if result not in task.output_files:
                         task.output_files.append(result)
                     
-                    console.print(f" [green]✓[/green] ({file_duration:.1f}s)")
+                    # Simple completion like v3.5: "OK ✓filename. Time: XX.Xs"
+                    console.print(f"  └─ OK ✓{image_path.name}. Time: {file_duration:.1f}s")
                     
                 else:
-                    console.print(f" [red]✗[/red] ({file_duration:.1f}s)")
+                    console.print(f"  └─ [red]✗ Failed to process {image_path.name}[/red]")
                     
             except ValueError as e:
-                # Handle specific errors like "No face detected" - skip but don't fail entire folder
+                # Handle specific errors like "No face detected"
                 file_duration = time.time() - file_start_time
                 if "No face detected" in str(e):
-                    console.print(f" [yellow]⚠[/yellow] ({file_duration:.1f}s) - No face")
+                    console.print(f"  └─ [yellow]⚠ Skipped {image_path.name} - No face detected[/yellow]")
                 else:
-                    console.print(f" [yellow]⚠[/yellow] ({file_duration:.1f}s) - {str(e)}")
+                    console.print(f"  └─ [yellow]⚠ Skipped {image_path.name} - {str(e)}[/yellow]")
                 continue
             except Exception as e:
                 file_duration = time.time() - file_start_time
-                console.print(f" [red]✗[/red] ({file_duration:.1f}s)")
-                console.print(f"    [red]Error: {str(e)}[/red]")
+                console.print(f"  └─ [red]✗ Failed {image_path.name} - {str(e)}[/red]")
                 continue
 
-        # Show summary
+        # Simple folder completion like v3.5
         if success:
-            console.print(f"  └─ [green]✓ Successfully processed {success_count}/{len(all_images)} images[/green]")
             self._rename_folder_as_processed(folder_path)
+            console.print(f"  └─ [green]Folder marked as processed: {folder_path.name}- done[/green]")
         else:
             console.print(f"  └─ [red]✗ Failed to process any images[/red]")
             task.error_message = f"No images were successfully processed"
@@ -1937,54 +1951,35 @@ class LivePortraitBatchProcessor:
         console.print()
         console.print(Rule(title="Processing Batch", style="info"))
         console.print(f"[info]Starting batch processing for {len(remaining_tasks)} folder(s)...[/info]")
-        
-        # Simple progress bar like v3.5
-        progress = Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(bar_width=None),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TextColumn("({task.completed} of {task.total})"),
-            TimeRemainingColumn(),
-            console=console,
-            transient=False,
-        )
-
-        main_task = progress.add_task("Processing folders...", total=len(remaining_tasks))
         processed_files = []
         success_count = 0
         start_time = time.time()
 
-        # Start processing
-        with progress:
-            self.logger.log_batch_start(self.current_state.session_id, len(remaining_tasks))
+        # Start processing (clean like v3.5)
+        self.logger.log_batch_start(self.current_state.session_id, len(remaining_tasks))
 
-            for i, task in enumerate(remaining_tasks):
-                folder_name = task.folder_path.name
-                # Don't truncate folder names - let Rich handle display
-                progress.update(main_task, description=f"Folder {i+1}/{len(remaining_tasks)}: {folder_name}")
-                
-                # Also print the folder being processed for clarity
-                console.print(f"\n[info]Processing folder: {task.folder_path}[/info]")
-                
-                # Process the task
-                result = await self.processor.process_with_tracking(task, processed_files)
-                
-                # Update task completion
-                task.status = result.status
-                task.end_time = time.time()
-                task.error_message = result.error_message
-                
-                if result.status == TaskStatus.COMPLETED:
-                    success_count += 1
-                
-                progress.update(main_task, advance=1)
-                
-                # Update task in state
-                for j, state_task in enumerate(self.current_state.tasks):
-                    if state_task.task_id == task.task_id:
-                        self.current_state.tasks[j] = task
-                        break
+        for i, task in enumerate(remaining_tasks):
+            folder_name = task.folder_path.name
+            
+            # Simple display like v3.5: "Processing folder (6/10): user_241622"
+            console.print(f"\n[info]Processing folder ({i+1}/{len(remaining_tasks)}): {folder_name}[/info]")
+            
+            # Process the task
+            result = await self.processor.process_with_tracking(task, processed_files)
+            
+            # Update task completion
+            task.status = result.status
+            task.end_time = time.time()
+            task.error_message = result.error_message
+            
+            if result.status == TaskStatus.COMPLETED:
+                success_count += 1
+            
+            # Update task in state
+            for j, state_task in enumerate(self.current_state.tasks):
+                if state_task.task_id == task.task_id:
+                    self.current_state.tasks[j] = task
+                    break
 
         # Calculate total time
         total_time = time.time() - start_time
@@ -2130,5 +2125,4 @@ if __name__ == "__main__":
         console.print(f"\n[error]Critical error: {e}[/error]")
         console.print_exception()
     finally:
-        console.print("\n[dimmed]Press Enter to exit...[/dimmed]")
-        input()
+        pass  # Let the batch file handle restart/exit logic

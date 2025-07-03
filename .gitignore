@@ -123,3 +123,49 @@ secrets.*
 .nox/
 .coverage
 .pytest_cache/
+
+# Personal Configuration (Prevent committing personal paths)
+liveportrait_batch_config.ini
+
+# Log Files
+*.log
+logs/
+liveportrait_batch_log.txt
+liveportrait_batch.log
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual Environment (if created locally)
+.venv/
+venv/
+ENV/
+
+# Temporary Files
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Session State Files
+session_state.json
+.state/
+
+# Personal Driving Templates (Users should add their own)
+driving_templates/*.mp4
+driving_templates/*.avi
+driving_templates/*.mov
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Windows System Files
+desktop.ini
+*.lnk
