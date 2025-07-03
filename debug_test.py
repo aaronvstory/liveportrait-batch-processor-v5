@@ -27,10 +27,10 @@ def test_liveportrait_command():
     config.read(config_path)
     
     # Get paths
-    lp_repo = Path(config.get("Paths", "liveportrait_repo_path", ""))
-    driving_template = Path(config.get("Paths", "driving_template_path", ""))
-    input_dir = Path(config.get("Paths", "default_parent_image_folder", ""))
-    python_exe = config.get("Paths", "python_executable", sys.executable)
+    lp_repo = Path(config.get("Paths", "liveportrait_repo_path"))
+    driving_template = Path(config.get("Paths", "driving_template_path"))
+    input_dir = Path(config.get("Paths", "default_parent_image_folder"))
+    python_exe = config.get("Paths", "python_executable") or sys.executable
     
     print(f"📁 LivePortrait repo: {lp_repo}")
     print(f"🎭 Driving template: {driving_template}")
@@ -60,15 +60,29 @@ def test_liveportrait_command():
     print("✅ All paths validated successfully")
     print()
     
-    # Find a test image
+    # Find a test image (prefer selfie/front images)
     test_image = None
     for folder in input_dir.iterdir():
         if folder.is_dir():
-            for ext in ['*.jpg', '*.jpeg', '*.png']:
-                images = list(folder.glob(ext))
+            # Look for images with face-indicating names first
+            face_patterns = ['*selfie*', '*front*', '*gen-selfie*', '*gen-3*']
+            for pattern in face_patterns:
+                images = list(folder.glob(pattern + '.jpg')) + list(folder.glob(pattern + '.jpeg')) + list(folder.glob(pattern + '.png'))
                 if images:
                     test_image = images[0]
                     break
+            
+            # If no face-specific images, try any image except back/license
+            if not test_image:
+                for ext in ['*.jpg', '*.jpeg', '*.png']:
+                    images = list(folder.glob(ext))
+                    for img in images:
+                        # Skip back/license images that likely don't have faces
+                        if not any(word in img.name.lower() for word in ['back', 'license', 'rear', 'behind']):
+                            test_image = img
+                            break
+                    if test_image:
+                        break
             if test_image:
                 break
     
@@ -92,29 +106,56 @@ def test_liveportrait_command():
     ]
     
     # Add config flags
-    if config.getboolean("Arguments", "flag_force_cpu", False):
-        command.append("--flag-force-cpu")
-    if config.getboolean("Arguments", "flag_use_half_precision", False):
-        command.append("--flag-use-half-precision")
-    if config.getboolean("Arguments", "flag_relative_motion", False):
-        command.append("--flag-relative-motion")
-    if config.getboolean("Arguments", "flag_pasteback", False):
-        command.append("--flag-pasteback")
+    try:
+        if config.getboolean("Arguments", "flag_force_cpu"):
+            command.append("--flag-force-cpu")
+    except:
+        pass
+    try:
+        if config.getboolean("Arguments", "flag_use_half_precision"):
+            command.append("--flag-use-half-precision")
+    except:
+        pass
+    try:
+        if config.getboolean("Arguments", "flag_relative_motion"):
+            command.append("--flag-relative-motion")
+    except:
+        pass
+    try:
+        if config.getboolean("Arguments", "flag_pasteback"):
+            command.append("--flag-pasteback")
+    except:
+        pass
     
     print()
     print("🚀 Executing LivePortrait command:")
-    print("   " + " ".join(command))
+    command_str = ' '.join(f'"{arg}"' if ' ' in str(arg) else str(arg) for arg in command)
+    print("   " + command_str)
+    print(f"📏 Command length: {len(command_str)} characters")
+    
+    if len(command_str) > 8000:
+        print("⚠️  WARNING: Command line may be too long for Windows!")
     print()
     
     # Execute command
     try:
-        result = subprocess.run(
-            command,
-            cwd=lp_repo,
-            capture_output=True,
-            text=True,
-            timeout=60  # 1 minute timeout for test
-        )
+        if os.name == 'nt':  # Windows - use shell=True for better path handling
+            result = subprocess.run(
+                command_str,
+                shell=True,
+                cwd=lp_repo,
+                capture_output=True,
+                text=True,
+                timeout=60  # 1 minute timeout for test
+            )
+        else:  # Unix/Linux
+            result = subprocess.run(
+                command,
+                cwd=lp_repo,
+                capture_output=True,
+                text=True,
+                timeout=60  # 1 minute timeout for test
+            )
         
         print(f"📊 Return code: {result.returncode}")
         

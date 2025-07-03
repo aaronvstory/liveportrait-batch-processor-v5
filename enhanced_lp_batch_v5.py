@@ -967,15 +967,30 @@ class ImageProcessor(BaseProcessor):
         # Execute command with timeout
         try:
             # Log the full command for debugging
-            self.logger.info(f"Executing command: {' '.join(command)}")
+            command_str = ' '.join(f'"{arg}"' if ' ' in str(arg) else str(arg) for arg in command)
+            self.logger.info(f"Executing command: {command_str}")
             
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-                cwd=lp_repo,
-            )
+            # Check command length for Windows compatibility
+            if len(command_str) > 8000:  # Windows command line limit is ~8192
+                raise ValueError(f"Command line too long ({len(command_str)} chars). Try shorter paths.")
+            
+            # Use shell=True on Windows for better path handling with spaces
+            if os.name == 'nt':  # Windows
+                process = await asyncio.create_subprocess_shell(
+                    command_str,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                    cwd=lp_repo,
+                )
+            else:  # Unix/Linux
+                process = await asyncio.create_subprocess_exec(
+                    *command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                    cwd=lp_repo,
+                )
 
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(), timeout=self.timeout
