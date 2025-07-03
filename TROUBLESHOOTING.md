@@ -2,6 +2,42 @@
 
 ## Path Configuration Issues
 
+### Problem: All Processing Failing with Command Errors
+
+**Symptoms:**
+- All folders show "Failed to process any images"
+- Error messages like "Command '[...Scripts/LPbatc..." truncated
+- 0/N folders processed successfully
+- Commands failing immediately
+
+**Solutions:**
+
+1. **Run Debug Test**
+   ```bash
+   python debug_test.py
+   # This will test LivePortrait command execution and show detailed errors
+   ```
+
+2. **Check Python Environment**
+   ```bash
+   # Make sure you're using the right Python for LivePortrait
+   # Add to config if LivePortrait needs specific Python:
+   [Paths]
+   python_executable = C:\path\to\liveportrait\python.exe
+   ```
+
+3. **Verify LivePortrait Installation**
+   ```bash
+   # Test LivePortrait manually first:
+   cd F:\DF\LivePortraitPortablev110
+   python inference.py --help
+   ```
+
+4. **Check Command Arguments**
+   - LivePortrait flag names may have changed
+   - Verify flag syntax matches your LivePortrait version
+   - Check if inference.py accepts the flags being used
+
 ### Problem: "Invalid LivePortrait path" Error
 
 **Symptoms:**
